@@ -11,17 +11,27 @@ import (
 	"github.com/adrg/xdg"
 )
 
-// wanted reads the passed list of paths or exits with a usage message.
+// wanted reads the passed list of paths and returns them as a slice of absolute
+// paths or exits with a usage message.
 func wanted() []string {
 	flag.Parse()
 	if len(flag.Args()) == 0 {
-		fmt.Println("usage: nnn-select [paths...]")
+		fmt.Fprintf(os.Stderr, "usage: nnn-select [paths...]")
 		os.Exit(1)
 	}
 
 	var s []string
 	for _, v := range flag.Args() {
-		s = append(s, v)
+		absolute, err := filepath.Abs(v)
+		if err != nil {
+			fmt.Fprintf(
+				os.Stderr,
+				"failed parsing %s into absabsolute path: %v",
+				v,
+				err,
+			)
+		}
+		s = append(s, absolute)
 	}
 	return s
 }
