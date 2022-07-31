@@ -1,6 +1,8 @@
 package main
 
 import (
+	"errors"
+	"flag"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -9,35 +11,69 @@ import (
 	"github.com/adrg/xdg"
 )
 
-func main() {
-	if len(os.Args) != 2 {
-		fmt.Println("usage: nnn-select [path]")
-		os.Exit(1)
-	}
-	selection := os.Args[1]
-
-	// Get old selection.
-	sPath := filepath.Join(xdg.ConfigHome, "nnn", ".selection")
-	current, err := os.ReadFile(sPath)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "failed reading selections: %v", err)
+// wanted reads the passed list of paths or exits with a usage message.
+func wanted() []string {
+	flag.Parse()
+	if len(flag.Args()) == 0 {
+		fmt.Println("usage: nnn-select [paths...]")
 		os.Exit(1)
 	}
 
-	// Check if already selected.
-	old := strings.Split(string(current), "\x00")
-	for _, v := range old {
-		if v == selection {
-			os.Exit(0)
+	var s []string
+	for _, v := range flag.Args() {
+		s = append(s, v)
+	}
+	return s
+}
+
+// existing selections from the nnn .selection file.
+func existing(path string) []string {
+	b, err := os.ReadFile(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return []string{}
+	} else if err != nil {
+		fmt.Fprintf(os.Stderr, "failed reading current selections: %v", err)
+		os.Exit(1)
+	}
+	if len(b) == 0 {
+		return []string{}
+	}
+	return strings.Split(string(b), "\x00")
+}
+
+// selection takes a list of wants and exists paths and returns a null character
+// separated byte slice. If a path was found in one list but not the other it's
+// included, but if it's found in both lists it's not included.
+func selection(wants, exists []string) []byte {
+	set := make(map[string]struct{})
+	for _, e := range exists {
+		set[e] = struct{}{}
+	}
+	for _, w := range wants {
+		if _, ok := set[w]; ok {
+			delete(set, w)
+			continue
 		}
+		set[w] = struct{}{}
 	}
 
-	// Append new selection to file.
-	if len(current) > 0 {
-		current = append(current, []byte("\x00")...)
+	selections := make([]string, 0, len(set))
+	for k := range set {
+		selections = append(selections, k)
 	}
-	current = append(current, []byte(selection)...)
-	if err := os.WriteFile(sPath, current, 0644); err != nil {
+	return []byte(strings.Join(selections, "\x00"))
+}
+
+// save the selections to path.
+func save(path string, selections []byte) {
+	if err := os.WriteFile(path, selections, 0644); err != nil {
 		fmt.Fprintf(os.Stderr, "failed writing selections: %v", err)
 	}
+}
+
+func main() {
+	wants := wanted()
+	path := filepath.Join(xdg.ConfigHome, "nnn", ".selection")
+	exists := existing(path)
+	save(path, selection(wants, exists))
 }
